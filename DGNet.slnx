@@ -1,0 +1,5 @@
+<Solution>
+    <Project Path="DGNet.Tests/DGNet.Tests.csproj" />
+    <Project Path="DGNet.SourceGenerator/DGNet.SourceGenerator.csproj" />
+    <Project Path="DGNet/DGNet.csproj" />
+</Solution>
