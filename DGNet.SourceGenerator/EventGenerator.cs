@@ -9,7 +9,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace DGNet.SourceGenerator;
 
 [Generator(LanguageNames.CSharp)]
-public class EventGroupGenerator : IIncrementalGenerator
+public class EventGenerator : IIncrementalGenerator
 {
     private static readonly (ulong, string)[] SizeTypes = [
         (byte.MaxValue, "byte"),
@@ -66,9 +66,6 @@ public class EventGroupGenerator : IIncrementalGenerator
             .ToArray();
 
         var b = new StringBuilder();
-        // b.AppendLine("/*");
-        // b.AppendLine();
-        // b.AppendLine("*/");
 
         b.AppendLine($"namespace {containedNamespace};\n");
 
@@ -76,6 +73,8 @@ public class EventGroupGenerator : IIncrementalGenerator
         b.AppendLine($"\tpublic delegate void {name}Delegate({name} ev);");
         b.AppendLine($"\tpublic static event {name}Delegate? Event;\n");
 
+        // NOTE: You know it's unlikely but possible that some crazy individual decides to have more than
+        // 256 events in a group so let's just make sure things don't break if that's the case...
         var sizeType = SizeTypes.First((t) => (ulong)events.Length < t.Item1).Item2;
 
         // EventGroup.EventKind
@@ -187,32 +186,12 @@ public class EventGroupGenerator : IIncrementalGenerator
             bool valid = true;
             foreach (var p in primary.Parameters)
             {
-                var type = p.Type;
-
-                // b.AppendLine($"// {p.Name} TypeKind = {type.TypeKind};");
-
-                // if (type.TypeKind == TypeKind.Enum)
-                // {
-                //     var namedType = (INamedTypeSymbol)type;
-                //     type = namedType.EnumUnderlyingType!;
-                //     b.AppendLine($"// {p.Name} EnumType = {type};");
-                // }
-                // else if (type.TypeKind == TypeKind.Array)
-                // {
-                //     var arrayType = (IArrayTypeSymbol)type;
-                //     type = arrayType.ElementType;
-                //     b.AppendLine($"// {p.Name} ArrayType = {type};");
-                // }
-
-                // var specialType = type.SpecialType;
-                // b.AppendLine($"// {p.Name} SpecialType = {specialType};");
-
-                if (!ValidType(type))
+                if (!ValidType(p.Type))
                 {
                     context.ReportDiagnostic(Diagnostic.Create(
                         Common.EventUnsupportedType,
                         p.Locations.FirstOrDefault(),
-                        type.ToDisplayString()
+                        p.Type.ToDisplayString()
                     ));
                     valid = false;
                     continue;
@@ -290,7 +269,7 @@ public class EventGroupGenerator : IIncrementalGenerator
                     break;
                 }
             default:
-                throw new Exception(); // TODO: Is this valid?
+                throw new Exception(); // NOTE: This should never be reached because of the ValidType check
         }
         
     }
@@ -327,7 +306,7 @@ public class EventGroupGenerator : IIncrementalGenerator
                     break;
                 }
             default:
-                throw new Exception(); // TODO: Is this valid?
+                throw new Exception(); // NOTE: This should never be reached because of the ValidType check
         }
     }
 
@@ -347,7 +326,7 @@ public class EventGroupGenerator : IIncrementalGenerator
             SpecialType.System_Boolean => "Bool",
             SpecialType.System_Single => "Float",
             SpecialType.System_Double => "Double",
-            _ => throw new Exception(), // TODO: Is this valid?
+            _ => throw new Exception(), // NOTE: This should never be reached because of the ValidType check
         };
     }
 
