@@ -4,7 +4,7 @@ using ENetLib = ENet;
 
 namespace DGNet.ENet;
 
-public sealed class ENetBackend : IGDNetBackend
+public sealed class ENetBackend : IDGNetBackend
 {
     private static bool _initialized = false;
 

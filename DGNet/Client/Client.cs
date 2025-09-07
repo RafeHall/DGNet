@@ -1,11 +1,11 @@
 namespace DGNet.Client;
 
-public interface IGDNetBackend
+public interface IDGNetBackend
 {
 
 }
 
 public class Client
 {
-    private IGDNetBackend? _backend = null;
+    private IDGNetBackend? _backend = null;
 }
