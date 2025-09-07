@@ -34,4 +34,14 @@ public class Common
         true,
         "The [EventGroup] must use a primary constructor. Add one or this event will be ignored."
     );
+
+    public static readonly DiagnosticDescriptor EventGroupUnsupportedType = new(
+        "DGN0204",
+        "Unsupported type used in event as it cannot be serialized or deserialized",
+        "The type `{0}` cannot be used in an event as it cannot be serialized or deserialized",
+        "Usage",
+        DiagnosticSeverity.Error,
+        true,
+        "Events do not support this type, remove from event or make is serializable and deserializable."
+    );
 }

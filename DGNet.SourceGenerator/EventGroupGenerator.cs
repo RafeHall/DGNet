@@ -22,7 +22,8 @@ public class EventGroupGenerator : IIncrementalGenerator
         var provider = context.SyntaxProvider.ForAttributeWithMetadataName(
             "DGNet.Event.EventGroupAttribute",
             static (node, _) => node is TypeDeclarationSyntax,
-            static (context, _) => {
+            static (context, _) =>
+            {
                 var symbol = (context.TargetSymbol as INamedTypeSymbol)!;
                 var eventGroupNode = context.TargetNode;
                 var eventNodes = eventGroupNode
@@ -44,6 +45,8 @@ public class EventGroupGenerator : IIncrementalGenerator
 
         var members = symbol.GetTypeMembers();
 
+        // NOTE: Attributes can limit what they can be put on, but records fall under the category of classes
+        // so a manual check here is necessary as classes shouldn't be allowed.
         if (!symbol.IsRecord)
         {
             context.ReportDiagnostic(Diagnostic.Create(
@@ -62,11 +65,12 @@ public class EventGroupGenerator : IIncrementalGenerator
             .ToArray();
 
         var b = new StringBuilder();
-        b.AppendLine("/*");
-        b.AppendLine();
-        b.AppendLine("*/");
+        // b.AppendLine("/*");
+        // b.AppendLine();
+        // b.AppendLine("*/");
 
         b.AppendLine($"namespace {containedNamespace};\n");
+
         b.AppendLine($"public partial record {name} {{");
         b.AppendLine($"\tpublic delegate void {name}Delegate({name} ev);");
         b.AppendLine($"\tpublic static event {name}Delegate? Event;\n");
@@ -109,10 +113,16 @@ public class EventGroupGenerator : IIncrementalGenerator
         b.AppendLine("\t\t};");
         b.AppendLine("\t}\n");
 
+        // EventGroup.Receive
+        b.AppendLine($"\tpublic static void Receive({name} ev) {{");
+        b.AppendLine("\t\tEvent!.Invoke(ev);");
+        b.AppendLine("\t}");
+
         // EventGroup.Event
         foreach (var (e, en) in events.Zip(eventNodes, (a, b) => (a, b)))
         {
             var eventBase = e.BaseType;
+            // NOTE: Ensure the event extends the event group type
             if (!SymbolEqualityComparer.Default.Equals(eventBase, symbol))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
@@ -123,21 +133,7 @@ public class EventGroupGenerator : IIncrementalGenerator
                 continue;
             }
 
-            var maybePrimary = e.GetMembers()
-                .Where(s => s.Kind == SymbolKind.Method)
-                .Cast<IMethodSymbol>()
-                .Where(m => m.MethodKind == MethodKind.Constructor)
-                .First();
-
-            var eventMembers = e.GetMembers();
-            var properties = eventMembers
-                .Where(s => s.Kind == SymbolKind.Property)
-                .Cast<IPropertySymbol>()
-                .Where(p => !(p.IsOverride || p.IsVirtual || p.IsAbstract))
-                .Where(p => p.CanBeReferencedByName)
-                .ToArray();
-
-
+            // NOTE: Check the SyntaxNode that there is a parameters list as part of the record definition (aka. the primary initializer)
             var parameterList = en.ChildNodes()
                 .Where(n => n.IsKind(SyntaxKind.ParameterList))
                 .FirstOrDefault();
@@ -152,15 +148,29 @@ public class EventGroupGenerator : IIncrementalGenerator
                 continue;
             }
 
-            // NOTE: This is a bit of a sanity check, the previous check for a parameter list should cover all bases...
+            var primary = e.GetMembers()
+                .Where(s => s.Kind == SymbolKind.Method)
+                .Cast<IMethodSymbol>()
+                .Where(m => m.MethodKind == MethodKind.Constructor)
+                .First();
+
+            var eventMembers = e.GetMembers();
+            var properties = eventMembers
+                .Where(s => s.Kind == SymbolKind.Property)
+                .Cast<IPropertySymbol>()
+                .Where(p => !(p.IsOverride || p.IsVirtual || p.IsAbstract))
+                .Where(p => p.CanBeReferencedByName)
+                .ToArray();
+
+            // NOTE: Sanity check, the previous check for a parameter list should cover all bases but just to be sure...
             // NOTE: Luckily properties defined in order with the primary constructor generated properties first
             // which means any user defined properties will be afterwards, zip will only zip Min(a.Length, b.Length) elements
             // will not interfere with checking for a primary constructor and the check will be trivial...
-            var same = maybePrimary.Parameters
+            var filtered = primary.Parameters
                 .Zip(properties, (a, b) => a.Name == b.Name)
                 .All(b => b);
-            
-            if (!same)
+
+            if (!filtered)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     Common.EventGroupEventNotPrimaryConstructor,
@@ -170,18 +180,43 @@ public class EventGroupGenerator : IIncrementalGenerator
                 continue;
             }
 
-            foreach (var p in properties)
+            // Validate types are serializable / deserializable
+            for (int i = 0; i < primary.Parameters.Length; i++)
             {
-                // var type = (p as IFieldSymbol)!.Type;
-
-                // if (type.TypeKind == TypeKind.Enum)
-                // {
-                //     var namedType = (INamedTypeSymbol)type;
-                //     type = namedType.EnumUnderlyingType!;
-                // }
-                b.AppendLine($"// {p.Name}: {p.CanBeReferencedByName}");
-            }
                 
+                var param = primary.Parameters[i];
+                var p = properties[i];
+                var type = p.Type;
+
+                b.AppendLine($"// {p.Name} TypeKind = {type.TypeKind};");
+
+                if (type.TypeKind == TypeKind.Enum)
+                {
+                    var namedType = (INamedTypeSymbol)type;
+                    type = namedType.EnumUnderlyingType!;
+                    b.AppendLine($"// {p.Name} EnumType = {type};");
+                }
+                else if (type.TypeKind == TypeKind.Array)
+                {
+                    var arrayType = (IArrayTypeSymbol)type;
+                    type = arrayType.ElementType;
+                    b.AppendLine($"// {p.Name} ArrayType = {type};");
+                }
+
+                var specialType = type.SpecialType;
+                b.AppendLine($"// {p.Name} SpecialType = {specialType};");
+
+                if (!ValidType(type))
+                {
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        Common.EventGroupUnsupportedType,
+                        param.Locations.FirstOrDefault(),
+                        type.ToDisplayString()
+                    ));
+                    continue;
+                }
+            }
+
             b.AppendLine($"\tpublic partial record {e.Name} {{");
             b.AppendLine($"\t\tpublic delegate void {e.Name}Delegate({e.Name} ev);");
             b.AppendLine($"\t\tpublic static new event {e.Name}Delegate? Event;\n");
@@ -193,5 +228,49 @@ public class EventGroupGenerator : IIncrementalGenerator
         b.AppendLine("}");
 
         context.AddSource($"{name}.EventGroup.cs", b.ToString());
+    }
+
+    private static bool ValidType(ITypeSymbol type)
+    {
+        switch (type.TypeKind)
+        {
+            case TypeKind.Enum:
+                {
+                    var namedType = (INamedTypeSymbol)type;
+                    return ValidType(namedType.EnumUnderlyingType!);
+                }
+            case TypeKind.Array:
+                {
+                    var arrayType = (IArrayTypeSymbol)type;
+                    return ValidType(arrayType.ElementType);
+                }
+            case TypeKind.Struct:
+            case TypeKind.Class:
+                {
+                    return ValidSpecialType(type.SpecialType);
+                }
+            default:
+                return false;
+        }
+    }
+
+    private static bool ValidSpecialType(SpecialType type)
+    {
+        return type switch
+        {
+            SpecialType.System_String => true,
+            SpecialType.System_Int64 => true,
+            SpecialType.System_UInt64 => true,
+            SpecialType.System_Int32 => true,
+            SpecialType.System_UInt32 => true,
+            SpecialType.System_Int16 => true,
+            SpecialType.System_UInt16 => true,
+            SpecialType.System_Byte => true,
+            SpecialType.System_SByte => true,
+            SpecialType.System_Boolean => true,
+            SpecialType.System_Single => true,
+            SpecialType.System_Double => true,
+            _ => false,
+        };
     }
 }

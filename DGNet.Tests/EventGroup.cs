@@ -1,9 +1,9 @@
 using DGNet.Event;
-using DGNet.Serde;
 
 namespace DGNet.Tests;
 
-public enum KickReason
+
+public enum KickReason : byte
 {
     None = 0,
     Cheating = 1,
