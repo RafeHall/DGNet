@@ -2,5 +2,6 @@
     <Project Path="DGNet.Tests/DGNet.Tests.csproj" />
     <Project Path="DGNet.SourceGenerator/DGNet.SourceGenerator.csproj" />
     <Project Path="DGNet.ENet/DGNet.ENet.csproj" />
+    <Project Path="DGNet.Godot/DGNet.Godot.csproj" />
     <Project Path="DGNet/DGNet.csproj" />
 </Solution>
