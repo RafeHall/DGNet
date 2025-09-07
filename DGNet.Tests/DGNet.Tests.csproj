@@ -20,8 +20,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DGNetLib\DGNetLib.csproj" />
-    <ProjectReference Include="..\DGNetLib.SourceGenerator\DGNetLib.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\DGNet\DGNet.csproj" />
+    <ProjectReference Include="..\DGNet.SourceGenerator\DGNet.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
