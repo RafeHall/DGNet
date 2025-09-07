@@ -8,5 +8,5 @@ internal static class Extensions
         s.ToDisplayString(NullableFlowState.NotNull, SymbolDisplayFormat.FullyQualifiedFormat
             .WithGlobalNamespaceStyle(SymbolDisplayGlobalNamespaceStyle.Omitted));
 
-    public static bool IsEventGroupAttribute(this INamedTypeSymbol s) => s.FullPathAndNamespace() == "DGNet.Event.EventGroupAttribute";
+    public static bool IsEventGroupAttribute(this INamedTypeSymbol s) => s.FullPathAndNamespace() == "DGNet.Event.GenerateEventsAttribute";
 }

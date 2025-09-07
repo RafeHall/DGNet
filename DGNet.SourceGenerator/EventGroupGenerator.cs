@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
 using System.Text;
 
 using Microsoft.CodeAnalysis;
@@ -20,7 +21,7 @@ public class EventGroupGenerator : IIncrementalGenerator
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var provider = context.SyntaxProvider.ForAttributeWithMetadataName(
-            "DGNet.Event.EventGroupAttribute",
+            "DGNet.Event.GenerateEventsAttribute",
             static (node, _) => node is TypeDeclarationSyntax,
             static (context, _) =>
             {
@@ -50,7 +51,7 @@ public class EventGroupGenerator : IIncrementalGenerator
         if (!symbol.IsRecord)
         {
             context.ReportDiagnostic(Diagnostic.Create(
-                Common.EventGroupOnClassNotRecord,
+                Common.EventClassNotRecord,
                 symbol.Locations.FirstOrDefault(),
                 symbol.ToDisplayString()
             ));
@@ -126,7 +127,7 @@ public class EventGroupGenerator : IIncrementalGenerator
             if (!SymbolEqualityComparer.Default.Equals(eventBase, symbol))
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    Common.EventGroupEventIncorrectBase,
+                    Common.EventIncorrectBase,
                     e.Locations.FirstOrDefault(),
                     e.ToDisplayString()
                 ));
@@ -141,7 +142,7 @@ public class EventGroupGenerator : IIncrementalGenerator
             if (parameterList == null)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    Common.EventGroupEventNotPrimaryConstructor,
+                    Common.EventNotUsingPrimaryConstructor,
                     e.Locations.FirstOrDefault(),
                     e.ToDisplayString()
                 ));
@@ -173,48 +174,54 @@ public class EventGroupGenerator : IIncrementalGenerator
             if (!filtered)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    Common.EventGroupEventNotPrimaryConstructor,
+                    Common.EventNotUsingPrimaryConstructor,
                     e.Locations.FirstOrDefault(),
                     e.ToDisplayString()
                 ));
                 continue;
             }
 
+            // NOTE: After this point the primary constructor parameters should be used
+
             // Validate types are serializable / deserializable
-            for (int i = 0; i < primary.Parameters.Length; i++)
+            bool valid = true;
+            foreach (var p in primary.Parameters)
             {
-                
-                var param = primary.Parameters[i];
-                var p = properties[i];
                 var type = p.Type;
 
-                b.AppendLine($"// {p.Name} TypeKind = {type.TypeKind};");
+                // b.AppendLine($"// {p.Name} TypeKind = {type.TypeKind};");
 
-                if (type.TypeKind == TypeKind.Enum)
-                {
-                    var namedType = (INamedTypeSymbol)type;
-                    type = namedType.EnumUnderlyingType!;
-                    b.AppendLine($"// {p.Name} EnumType = {type};");
-                }
-                else if (type.TypeKind == TypeKind.Array)
-                {
-                    var arrayType = (IArrayTypeSymbol)type;
-                    type = arrayType.ElementType;
-                    b.AppendLine($"// {p.Name} ArrayType = {type};");
-                }
+                // if (type.TypeKind == TypeKind.Enum)
+                // {
+                //     var namedType = (INamedTypeSymbol)type;
+                //     type = namedType.EnumUnderlyingType!;
+                //     b.AppendLine($"// {p.Name} EnumType = {type};");
+                // }
+                // else if (type.TypeKind == TypeKind.Array)
+                // {
+                //     var arrayType = (IArrayTypeSymbol)type;
+                //     type = arrayType.ElementType;
+                //     b.AppendLine($"// {p.Name} ArrayType = {type};");
+                // }
 
-                var specialType = type.SpecialType;
-                b.AppendLine($"// {p.Name} SpecialType = {specialType};");
+                // var specialType = type.SpecialType;
+                // b.AppendLine($"// {p.Name} SpecialType = {specialType};");
 
                 if (!ValidType(type))
                 {
                     context.ReportDiagnostic(Diagnostic.Create(
-                        Common.EventGroupUnsupportedType,
-                        param.Locations.FirstOrDefault(),
+                        Common.EventUnsupportedType,
+                        p.Locations.FirstOrDefault(),
                         type.ToDisplayString()
                     ));
+                    valid = false;
                     continue;
                 }
+            }
+            // NOTE: Delayed return so we can report all possible unsupported type diagnostic errors
+            if (!valid)
+            {
+                return;
             }
 
             b.AppendLine($"\tpublic partial record {e.Name} {{");
@@ -222,12 +229,126 @@ public class EventGroupGenerator : IIncrementalGenerator
             b.AppendLine($"\t\tpublic static new event {e.Name}Delegate? Event;\n");
             b.AppendLine($"\t\tpublic static void Receive({e.Name} ev) {{");
             b.AppendLine("\t\t\tEvent!.Invoke(ev);");
+            b.AppendLine("\t\t}\n");
+
+            // Event.Serialize
+            b.AppendLine($"\t\tpublic static void Serialize({e.Name} self, DGNet.Serde.Serializer se) {{");
+            foreach (var p in primary.Parameters)
+            {
+                WriteSerialize(p, ref b);
+            }
+            b.AppendLine("\t\t}\n");
+
+            // Event.Deserialize
+            b.AppendLine($"\t\tpublic static {e.Name} Deserialize(DGNet.Serde.Deserializer de) {{");
+            b.AppendLine("\t\t\treturn new(");
+            for (int i = 0; i < primary.Parameters.Length; i++)
+            {
+                var p = primary.Parameters[i];
+                var last = i == primary.Parameters.Length - 1;
+                WriteDeserialize(p, ref b, last);
+            }
+            b.AppendLine("\t\t\t);");
             b.AppendLine("\t\t}");
+
             b.AppendLine("\t}\n");
         }
         b.AppendLine("}");
 
-        context.AddSource($"{name}.EventGroup.cs", b.ToString());
+        context.AddSource($"{name}.Events.cs", b.ToString());
+    }
+
+    private static void WriteSerialize(IParameterSymbol p, ref StringBuilder b)
+    {
+        var t = p.Type;
+        switch (t.TypeKind)
+        {
+            case TypeKind.Enum:
+                {
+                    var namedType = (INamedTypeSymbol)t;
+                    var underlyingType = namedType.EnumUnderlyingType!;
+                    var serializeName = GetSerializeName(underlyingType.SpecialType);
+                    b.AppendLine($"\t\t\tse.Serialize{serializeName}(({underlyingType.Name})self.{p.Name});");
+                    break;
+                }
+            case TypeKind.Array:
+                {
+                    var arrayType = (IArrayTypeSymbol)t;
+                    var elementType = arrayType.ElementType;
+                    var serializeName = GetSerializeName(elementType.SpecialType);
+                    b.AppendLine($"\t\t\tse.SerializeArray<{elementType.Name}>(");
+                    b.AppendLine($"\t\t\t\tself.{p.Name},");
+                    b.AppendLine($"\t\t\t\t(se, _, value) => se.Serialize{serializeName}(value)");
+                    b.AppendLine("\t\t\t);");
+                    break;
+                }
+            case TypeKind.Struct:
+            case TypeKind.Class:
+                {
+                    var serializeName = GetSerializeName(t.SpecialType);
+                    b.AppendLine($"\t\t\tse.Serialize{serializeName}(self.{p.Name});");
+                    break;
+                }
+            default:
+                throw new Exception(); // TODO: Is this valid?
+        }
+        
+    }
+
+    private static void WriteDeserialize(IParameterSymbol p, ref StringBuilder b, bool last)
+    {
+        var comma = last ? "" : ",";
+        var t = p.Type;
+        switch (t.TypeKind)
+        {
+            case TypeKind.Enum:
+                {
+                    var namedType = (INamedTypeSymbol)t;
+                    var underlyingType = namedType.EnumUnderlyingType!;
+                    var serializeName = GetSerializeName(underlyingType.SpecialType);
+                    b.AppendLine($"\t\t\t\t({t.Name})de.Deserialize{serializeName}(){comma}");
+                    break;
+                }
+            case TypeKind.Array:
+                {
+                    var arrayType = (IArrayTypeSymbol)t;
+                    var elementType = arrayType.ElementType;
+                    var serializeName = GetSerializeName(elementType.SpecialType);
+                    b.AppendLine($"\t\t\t\tde.DeserializeArray<{elementType.Name}>(");
+                    b.AppendLine($"\t\t\t\t\t(de, _) => de.Deserialize{serializeName}()");
+                    b.AppendLine($"\t\t\t\t){comma}");
+                    break;
+                }
+            case TypeKind.Struct:
+            case TypeKind.Class:
+                {
+                    var serializeName = GetSerializeName(t.SpecialType);
+                    b.AppendLine($"\t\t\t\tde.Deserialize{serializeName}(){comma}");
+                    break;
+                }
+            default:
+                throw new Exception(); // TODO: Is this valid?
+        }
+    }
+
+    private static string GetSerializeName(SpecialType type)
+    {
+        return type switch
+        {
+            SpecialType.System_String => "String",
+            SpecialType.System_Int64 => "Int64",
+            SpecialType.System_UInt64 => "UInt64",
+            SpecialType.System_Int32 => "Int32",
+            SpecialType.System_UInt32 => "UInt32",
+            SpecialType.System_Int16 => "Int16",
+            SpecialType.System_UInt16 => "UInt16",
+            SpecialType.System_SByte => "Int8",
+            SpecialType.System_Byte => "UInt8",
+            SpecialType.System_Boolean => "Bool",
+            SpecialType.System_Single => "Float",
+            SpecialType.System_Double => "Double",
+            _ => throw new Exception(), // TODO: Is this valid?
+        };
     }
 
     private static bool ValidType(ITypeSymbol type)

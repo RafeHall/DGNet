@@ -1,3 +1,4 @@
+
 using DGNet.Event;
 
 namespace DGNet.Tests;
@@ -23,7 +24,7 @@ public static class KickReasonImpl
     }
 }
 
-[EventGroup]
+[GenerateEvents]
 public partial record VoteEvent
 {
     public partial record BeginMapVote(string[] Maps) : VoteEvent
@@ -33,57 +34,9 @@ public partial record VoteEvent
 
     public partial record BeginKickVote(string Player, KickReason Reason) : VoteEvent { }
     public partial record EndVote(string Message, bool Passed) : VoteEvent { }
+
+    public partial record ClearVoting(string[] Messages) : VoteEvent { }
 }
-
-// public partial record VoteEvent
-// {
-//     public partial record BeginMapVote
-//     {
-//         public static void Serialize(BeginMapVote self, Serializer se)
-//         {
-//             se.SerializeArray<string>(self.Maps, (se, _, value) => se.SerializeString(value));
-//         }
-
-//         public static BeginMapVote Deserialize(Deserializer de)
-//         {
-//             return new(de.DeserializeArray((de, _) => de.DeserializeString()));
-//         }
-//     }
-
-//     public partial record BeginKickVote
-//     {
-//         public static void Serialize(BeginKickVote self, Serializer se)
-//         {
-//             se.SerializeString(self.Player);
-//             se.SerializeUInt8((byte)self.Reason);
-//         }
-
-//         public static BeginKickVote Deserialize(Deserializer de)
-//         {
-//             return new(
-//                 de.DeserializeString(),
-//                 (KickReason)de.DeserializeUInt8()
-//             );
-//         }
-//     }
-
-//     public partial record EndVote
-//     {
-//         public static void Serialize(EndVote self, Serializer se)
-//         {
-//             se.SerializeString(self.Message);
-//             se.SerializeBool(self.Passed);
-//         }
-
-//         public static EndVote Deserialize(Deserializer de)
-//         {
-//             return new(
-//                 de.DeserializeString(),
-//                 de.DeserializeBool()
-//             );
-//         }
-//     }
-// }
 
 public interface IVoteMenu
 {
@@ -112,6 +65,8 @@ public class UsageExample
         VoteEvent.BeginMapVote.Event += OnBeginMapEvent;
         VoteEvent.BeginKickVote.Event += OnBeginKickEvent;
         VoteEvent.EndVote.Event += OnVoteEndEvent;
+
+        VoteEvent.ClearVoting.Event += OnClearVoteEvent;
     }
 
     public void ExitTree()
@@ -119,6 +74,15 @@ public class UsageExample
         VoteEvent.BeginMapVote.Event -= OnBeginMapEvent;
         VoteEvent.BeginKickVote.Event -= OnBeginKickEvent;
         VoteEvent.EndVote.Event -= OnVoteEndEvent;
+
+        VoteEvent.ClearVoting.Event -= OnClearVoteEvent;
+
+    }
+
+    private void OnClearVoteEvent(VoteEvent.ClearVoting ev)
+    {
+        _menu.Reset();
+        _menu.Hide();
     }
 
     public void OnBeginMapEvent(VoteEvent.BeginMapVote ev)
