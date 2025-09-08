@@ -15,14 +15,14 @@ public ref struct Serializer(Span<byte> buffer)
     //     int written = serializer.Finish();
     // }
 
-    public delegate void ArrayCallback<T>(Serializer se, int index, T value);
+    public delegate void ArrayCallback<T>(ref Serializer se, int index, T value);
 
-    public void SerializeArray<T>(ReadOnlySpan<T> values, ArrayCallback<T> callback)
+    public void SerializeArray<T>(T[] values, ArrayCallback<T> callback)
     {
         SerializeInt32(values.Length);
         for (int i = 0; i < values.Length; i++)
         {
-            callback(this, i, values[i]);
+            callback(ref this, i, values[i]);
         }
     }
 
@@ -176,7 +176,7 @@ public ref struct Serializer(Span<byte> buffer)
         _bytes = _bytes[8..];
     }
 
-    internal readonly int Finish()
+    public readonly int BytesWritten()
     {
         unsafe
         {

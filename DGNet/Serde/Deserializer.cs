@@ -8,7 +8,7 @@ public ref struct Deserializer(Span<byte> bytes)
     // TODO: implement serialization with granularity at the bit level
     // private byte _bit = 0;
 
-    public delegate T ArrayCallback<T>(Deserializer de, int index);
+    public delegate T ArrayCallback<T>(ref Deserializer de, int index);
 
     public T[] DeserializeArray<T>(ArrayCallback<T> callback)
     {
@@ -16,7 +16,7 @@ public ref struct Deserializer(Span<byte> bytes)
         T[] values = new T[count];
         for (int i = 0; i < count; i++)
         {
-            values[i] = callback(this, i);
+            values[i] = callback(ref this, i);
         }
         return values;
     }
